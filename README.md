@@ -1,0 +1,2 @@
+Used library:
+- Npgsql
