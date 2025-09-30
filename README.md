@@ -1,2 +1,2 @@
 Used library:
-- Npgsql
+- Npgsql Version="9.0.3"
