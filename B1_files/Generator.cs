@@ -7,8 +7,10 @@ using System.Threading.Tasks;
 
 namespace B1_files
 {
+    //класс для генерации файлов и работы с ними
     public static class Generator
     {
+        //константы 
         const string DIR_PATH = "files";
         const string FILE_NAME = "file_";
         const string FILE_JOIN_NAME = "report.txt";
@@ -25,8 +27,13 @@ namespace B1_files
 
         const int MAX_SYMBOLS_IN_ROW = 57;
         const int BATCH_SIZE = 1000;
+
+        const string CONN_STRING = "Host=localhost;Port=5432;Username=postgres;Password=Qwerty1234;Database=b1_db";
+
+        //метод, генерирующий файлы
         public static async Task GenerateFiles()
         {
+            //проверка существования папки
             if (!Directory.Exists(DIR_PATH))
                 Directory.CreateDirectory(DIR_PATH);
 
@@ -35,19 +42,32 @@ namespace B1_files
                 string fileName = $"{FILE_NAME}{i}.txt";
                 string filePath = Path.Combine(DIR_PATH, fileName);
 
-                using var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None, bufferSize: 1 << 20, useAsync: true);
-                using var sw = new StreamWriter(fs, Encoding.UTF8, bufferSize: 1 << 16);
+                //открываем потоки для записи и чтения
 
+                using var fs = new FileStream(filePath,   
+                    FileMode.Create, 
+                    FileAccess.Write, //режим создания или записи,
+                    FileShare.None, //запрет общего доступа для работы с файлами
+                    bufferSize: 1 << 20, //размер буфера для вставки большого числа строк, 
+                    useAsync: true); //поддержка асинхронности
+
+                using var sw = new StreamWriter(fs, 
+                    Encoding.UTF8, //кодировка
+                    bufferSize: 1 << 16); //размер буфера
+
+                //stringbuilder размером с пачку -> эффективная вставка и генерация
                 var stringRow = new StringBuilder(MAX_SYMBOLS_IN_ROW * BATCH_SIZE);
 
                 for (int j = 0; j < ROWS_COUNT; j++)
                 {
+                    //получение сгенерированных случайных последовательностей
                     var date = Randoms.GetDate(YEARS_AGO);
                     var engString = Randoms.GetEnglishSymbols(ENG_COUNT);
                     var ruString = Randoms.GetRussianSymbols(RU_COUNT);
                     var intRandom = Randoms.GetIntNumber(INT_RANDOM_MAX);
                     var doubleRandom = Randoms.GetDoubleNumber(DOUBLE_RANDOM_MAX, DOUBLE_RANDOM_FRACT);
 
+                    //генерация итоговой строки
                     stringRow.Append(date)
                         .Append(DIVIDER)
                         .Append(engString)
@@ -60,6 +80,7 @@ namespace B1_files
                         .Append(DIVIDER)
                         .AppendLine();
 
+                    //если размер = размер пачки  -> отправляем
                     if ((j + 1) % BATCH_SIZE == 0)
                     {
                         await sw.WriteAsync(stringRow.ToString());
@@ -67,40 +88,45 @@ namespace B1_files
                     }
                 }
 
-
+                //если остались данные -> дописываем
                 if (stringRow.Length > 0)
                 {
                     await sw.WriteAsync(stringRow.ToString());
                     stringRow.Clear();
                 }
 
+                //выталкивает данные и очищает буферы
                 await sw.FlushAsync();
                 Console.WriteLine($"Written {fileName}");
             }
 
         }
 
+        //метод для обьединения файлов
         public static async Task JoinFiles(string pattern)
         {
             if (!Directory.Exists(DIR_PATH))
                 throw new DirectoryNotFoundException(DIR_PATH);
 
+            //полный путь к файлам (по шаблону)
             string filePath = Path.Combine(DIR_PATH, FILE_JOIN_NAME);
 
+            //потоки
             using var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None, bufferSize: 1 << 20, useAsync: true);
             using var sw = new StreamWriter(fs, Encoding.UTF8, bufferSize: 1 << 16);
 
-
+            //будем работать с файлами заданного шаблона
             string[] files = Directory.GetFiles(DIR_PATH, "file_*.txt")
                           .OrderBy(f => f)
                           .ToArray();
 
-            var stringRows = new StringBuilder(BATCH_SIZE);
+            var stringRows = new StringBuilder(MAX_SYMBOLS_IN_ROW * BATCH_SIZE);
             int rowsCount = 0;
             int skipCount = 0;
 
             foreach (string file in files)
             {
+                //временный файл для очистки файла от строк с заданным шаблоном (параметр в функции)
                 string tempFile = Path.GetTempFileName();
                 using (var sr = new StreamReader(file))
                 {
@@ -108,8 +134,10 @@ namespace B1_files
                     {
 
                         string line;
+                        //считываем все строки файла
                         while ((line = await sr.ReadLineAsync()) != null)
                         {
+                            //содержит ли заданный шаблон
                             if (!line.Contains(pattern))
                             {
                                 stringRows.AppendLine(line);
@@ -118,6 +146,7 @@ namespace B1_files
                             else
                                 skipCount++;
 
+                            //записываем если достигли размера пачки (запись в общий файл)
                             if (rowsCount % BATCH_SIZE == 0)
                             {
                                 string chunk = stringRows.ToString();
@@ -128,6 +157,7 @@ namespace B1_files
                             }
                         }
 
+                        //дописываем оставшиеся данные (в общий файл)
                         if (stringRows.Length > 0)
                         {
                             string chunk = stringRows.ToString();
@@ -140,6 +170,7 @@ namespace B1_files
                     }
                 }
 
+                //записываем почищенные данные обратно в исходный файл
                 File.Delete(file);
                 File.Move(tempFile, file);
             }
@@ -148,6 +179,7 @@ namespace B1_files
             Console.WriteLine($"Written {rowsCount} lines in '{FILE_JOIN_NAME}' file. Skipped {skipCount} lines");
         }
 
+        //метод загрузки данных из файлов в бд
         public static async Task ExportFilesToDb()
         {
             if (!Directory.Exists(DIR_PATH))
@@ -159,51 +191,50 @@ namespace B1_files
                           .OrderBy(f => f)
                           .ToArray();
 
-            var stringRows = new StringBuilder(BATCH_SIZE);
-            int rowsCount = 0;
-
-            var connString = "Host=localhost;Port=5432;Username=postgres;Password=Qwerty1234;Database=b1_db";
-
-            await using var conn = new NpgsqlConnection(connString);
+            //создаем и открываем подключение к бд
+            await using var conn = new NpgsqlConnection(CONN_STRING);
             await conn.OpenAsync();
+
             var totalWrittenCount = 0;
             var writtenCount = 0;
 
+            //общее количество строк для статистики загрузки
+            var totalCount = files.Sum(f => File.ReadLines(f).Count());
+
             foreach (string file in files)
             {
+                //поток для чтения записей из файла
                 using var sr = new StreamReader(file);
-                using var writer = conn.BeginTextImport(
-                    "COPY Reports (date_field, eng_field, ru_field, number_field, decimal_field) " +
-                    "FROM STDIN (FORMAT CSV, DELIMITER E'|', NULL '', HEADER FALSE)"
+
+                //создаем обьект для массовой загрузки данных в бд
+                using var writer = conn.BeginTextImport( //using сам закрывает и подчищает подключение после завершения операции
+                    "COPY Reports (date_field, eng_field, ru_field, number_field, decimal_field) " + //название столбцов в бд
+                    "FROM STDIN (FORMAT CSV, DELIMITER E'|', NULL '', HEADER FALSE)" //указываем формат, символ разделитель
                     );
 
                 string? line;
-
-                //int fileTotalCount = File.ReadLines(file).Count();
-
-                var totalCount = files.Sum(f => File.ReadLines(f).Count()); ;
+                
+                //читаем все строки
                 while ((line = await sr.ReadLineAsync()) != null)
                 {
                     if (string.IsNullOrWhiteSpace(line)) continue;
 
+                    //подготовка строки для загрузки в бд
+                    // || -> | т.к. разделитетелем данных может быть один символ
+                    // , -> . т.к. в постгрес вещественные числа хранятся с точкой 
                     line = line.Replace("||", "|");
                     line = line.Replace(',', '.');
 
+                    //лишний символ-разделитель в конце строки
                     if (line.EndsWith("|"))
                         line = line.Substring(0, line.Length - 1);
 
+                    //записываем обработанную строку в бд
                     await writer.WriteLineAsync(line);
                     totalWrittenCount++;
                     writtenCount++;
-                    //Console.Clear();
-                    //Console.WriteLine($"Written: {totalWrittenCount}/{totalCount} lines");
-
-                    //writtenCount++;
-                    //if (writtenCount % 100 == 0)
-                    //{
-                    //    Console.WriteLine($"Файл {Path.GetFileName(file)}: загружено {writtenCount}/{fileTotalCount} строк");
-                    //}
-
+                   
+                    //вывод статистики загрузки
                     if (totalWrittenCount % 1000 == 0 || totalWrittenCount == totalCount)
                     {
                         Console.SetCursorPosition(0, Console.CursorTop);
@@ -211,7 +242,7 @@ namespace B1_files
                     }
                 }
 
-                await writer.DisposeAsync();
+               
                 Console.WriteLine($" / Файл {Path.GetFileName(file)} загружен полностью: {writtenCount} строк");
                 writtenCount = 0;
 
