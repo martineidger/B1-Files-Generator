@@ -14,7 +14,7 @@ namespace B1_files
         const string DIR_PATH = "files";
         const string FILE_NAME = "file_";
         const string FILE_JOIN_NAME = "report.txt";
-        const int FILES_COUNT = 20;
+        const int FILES_COUNT = 100;
         const int ROWS_COUNT = 100000;
         const string DIVIDER = "||";
 
